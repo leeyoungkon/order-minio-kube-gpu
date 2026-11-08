@@ -1,0 +1,61 @@
+# Edit namespace, image, Kafka bootstrap and Ollama service name before deploying.
+# Single replica only: educational SQLite event projection + PVC.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: inventory-agent-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-agent
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {app: inventory-agent}
+  template:
+    metadata:
+      labels: {app: inventory-agent}
+    spec:
+      containers:
+      - name: agent
+        image: yklee2002/cretec-inventory-agent
+        ports:
+        - containerPort: 8080
+        env:
+        - {name: RUN_MODE, value: kafka}
+        - {name: STATE_DB, value: /data/inventory_agent.db}
+        - {name: KAFKA_BOOTSTRAP, value: "my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092"}
+        - {name: KAFKA_TOPIC, value: "orderscdc.orderdb.orders"}
+        - {name: KAFKA_OFFSET_RESET, value: latest}
+        - {name: OLLAMA_URL, value: "http://localhost:15000"}
+        - {name: OLLAMA_MODEL, value: "qwen3:8b"}
+        volumeMounts:
+        - {name: data, mountPath: /data}
+        readinessProbe:
+          httpGet: {path: /healthz, port: 8080}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests: {cpu: 200m, memory: 256Mi}
+          limits: {cpu: "1", memory: 1Gi}
+      volumes:
+      - name: data
+        persistentVolumeClaim: {claimName: inventory-agent-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-agent
+spec:
+  selector: {app: inventory-agent}
+  ports:
+  - {name: http, port: 8080, targetPort: 8080}
+  type: ClusterIP
